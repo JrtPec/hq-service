@@ -8,5 +8,6 @@ dependencies = [
     "uvicorn[standard]",
     "python-dotenv",
     "httpx",
-    "openai>=1.40.0"
+    "openai>=1.40.0",
+    "discord"
 ]

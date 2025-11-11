@@ -1,13 +1,24 @@
 import sqlite3
-from pathlib import Path
 import os
 
 from openai import AsyncOpenAI
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful assistant.")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-DB_PATH = Path(os.getenv("DB_PATH", "conversation.db"))
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+def resolve_db_path():
+    db_path = os.getenv("DB_PATH", "")
+    if not db_path:
+        db_path = "/tmp/conversation.db"
+    try:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    except (PermissionError, OSError):
+        # fallback
+        db_path = "/tmp/conversation.db"
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    return db_path
+
+DB_PATH = resolve_db_path()
 
 def init_db() -> sqlite3.Connection:
     """Initialiseer de database en maak de benodigde tabellen aan indien ze nog niet bestaan."""
