@@ -1,5 +1,7 @@
+import datetime as dt
 import sqlite3
 import os
+import json
 
 from openai import AsyncOpenAI
 
@@ -9,12 +11,12 @@ def resolve_db_path():
     """Bepaal het pad voor de SQLite-database."""
     db_path = os.getenv("DB_PATH", "")
     if not db_path:
-        db_path = "/tmp/conversation.db"
+        db_path = "/tmp/db.db"
     try:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     except (PermissionError, OSError):
         # fallback
-        db_path = "/tmp/conversation.db"
+        db_path = "/tmp/db.db"
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
     return db_path
 
@@ -89,3 +91,47 @@ def reopen_conversation(partner_name: str) -> None:
         (partner_name,),
     )
     conn.commit()
+
+def log_event(
+    mission_code: str,
+    event_code: str,
+    notes: str,
+    state: dict | None = None,
+) -> dict:
+    """
+    Log een event vanuit HQ of een andere agent.
+    """
+    payload = {
+        "mission_code": mission_code,
+        "event_code": event_code,
+        "notes": notes,
+        "state": state or {},
+    }
+
+    conn = init_db()
+    c = conn.cursor()
+    
+    c.execute(
+        """
+        CREATE TABLE IF NOT EXISTS logbook (
+            timestamp TEXT,
+            mission_code TEXT,
+            event_code TEXT,
+            notes TEXT,
+            state_json TEXT
+        )
+        """
+    )
+    c.execute(
+        "INSERT INTO logbook VALUES (?, ?, ?, ?, ?)",
+        (
+            dt.datetime.utcnow().isoformat(),
+            mission_code,
+            event_code,
+            notes,
+            json.dumps(state or {}),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return payload
