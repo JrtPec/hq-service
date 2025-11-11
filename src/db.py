@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful assistant.")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 DB_PATH = Path(os.getenv("DB_PATH", "conversation.db"))
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 def init_db() -> sqlite3.Connection:
     """Initialiseer de database en maak de benodigde tabellen aan indien ze nog niet bestaan."""
