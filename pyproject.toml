@@ -1,0 +1,12 @@
+[project]
+name = "hq-service"
+version = "0.1.0"
+description = "FastAPI service that communicates with GPT"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "httpx",
+    "openai>=1.40.0"
+]
