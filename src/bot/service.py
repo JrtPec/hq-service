@@ -1,11 +1,14 @@
+""" "Discord-bot service voor HQ."""
+
+import logging
 import os
 import textwrap
-import logging
+
 import discord
 from discord import Intents
 
+from ..game.logger import log_message
 from ..game.main import chat as hq_chat
-from ..game.logger import log as game_log
 
 log = logging.getLogger("hq-bot")
 logging.basicConfig(level=logging.INFO)
@@ -13,14 +16,21 @@ logging.basicConfig(level=logging.INFO)
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
 
+
 def _split(text: str, limit: int = 2000):
     if len(text) <= limit:
         return [text]
-    return textwrap.wrap(text, width=limit, replace_whitespace=False, drop_whitespace=False)
+    return textwrap.wrap(
+        text, width=limit, replace_whitespace=False, drop_whitespace=False
+    )
+
 
 async def start_bot():
+    """Start de Discord-bot."""
     if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
-        log.warning("Bot niet gestart: ontbrekende ENV (DISCORD_TOKEN, DISCORD_CHANNEL_ID)")
+        log.warning(
+            "Bot niet gestart: ontbrekende ENV (DISCORD_TOKEN, DISCORD_CHANNEL_ID)"
+        )
         return
 
     intents = Intents.default()
@@ -35,21 +45,19 @@ async def start_bot():
 
     @client.event
     async def on_message(message: discord.Message):
-
         if message.channel.id != DISCORD_CHANNEL_ID:
             return
 
         content = message.content.strip()
-
         sender = message.author.display_name
-        payload = f"{sender}: {content}"
-
         try:
-            await game_log(payload)
+            log.info("Bericht ontvangen van %s: %s", sender, content)
+            log_message(sender=sender, content=content)
         except Exception as e:
             log.error("Fout bij het loggen van bericht: %s", e)
 
         if not message.author.bot:
+            payload = f"{sender}: {content}"
             try:
                 async with message.channel.typing():
                     reply = await hq_chat(payload)

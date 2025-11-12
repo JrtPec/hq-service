@@ -1,11 +1,19 @@
+"""FastAPI API voor GPT Chat Service."""
+
 import os
+
 from fastapi import FastAPI, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyQuery, APIKeyHeader
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import (
+    APIKeyHeader,
+    APIKeyQuery,
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
+)
 
-from .models import ChatRequest, ChatResponse
 from ..game.main import chat as game_chat
+from .models import ChatRequest, ChatResponse
 
 # ---------- Config ----------
 API_KEYS: list[str] = os.getenv("API_KEYS", "").split(",")  # comma separated
@@ -18,7 +26,9 @@ security = HTTPBearer(auto_error=False)
 
 # --------- Middleware ----------
 # CORS (pas origins aan of laat leeg voor lokaal)
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
+ALLOWED_ORIGINS = (
+    os.getenv("ALLOWED_ORIGINS", "").split(",") if os.getenv("ALLOWED_ORIGINS") else []
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS or ["*"],  # in productie: beperk!
@@ -26,6 +36,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 def get_api_key(
     bearer: HTTPAuthorizationCredentials = Security(security),
@@ -54,6 +65,7 @@ def get_api_key(
 async def health():
     """Simple health check."""
     return {"ok": True}
+
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, api_key: str = Security(get_api_key)):
