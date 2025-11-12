@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
 from instructor import OpenAISchema
 
@@ -40,14 +40,14 @@ class Participant(OpenAISchema, ABC):
         return schema
 
     @classmethod
-    def load(cls, name: str) -> "Participant":
+    def load(cls, callsign: str) -> Self:
         """Laad een deelnemer vanuit een bestand."""
-        participant_path = cls._save_dir() / f"{name}.json"
+        participant_path = cls._save_dir() / f"{callsign}.json"
         with open(participant_path, "r", encoding="utf-8") as f:
             return cls.model_validate_json(f.read())
 
     @classmethod
-    def load_all(cls) -> list["Participant"]:
+    def load_all(cls) -> list[Self]:
         """Laad alle deelnemers vanuit bestanden."""
         participants = []
         if not cls._save_dir().exists():

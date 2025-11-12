@@ -13,24 +13,20 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 client = instructor.from_openai(client=AsyncOpenAI(api_key=OPENAI_API_KEY))
 
-HQ = Bot(
-    callsign="HQ",
-    system_prompt=get_system_prompt("src/game/prompts/HQ.txt"),
-    tool_names=[
-        create_player.__name__,
-        get_player.__name__,
-        get_all_players.__name__,
-        get_logs.__name__,
-    ],
-)
-HQ.save()
-
-DM = Bot(
-    callsign="DM",
-    system_prompt=get_system_prompt("src/game/prompts/DM.txt"),
-    tool_names=[get_player.__name__, get_all_players.__name__],
-)
-DM.save()
+try:
+    HQ = Bot.load(callsign="HQ")
+except FileNotFoundError:
+    HQ = Bot(
+        callsign="HQ",
+        system_prompt=get_system_prompt("src/game/prompts/HQ.txt"),
+        tool_names=[
+            create_player.__name__,
+            get_player.__name__,
+            get_all_players.__name__,
+            get_logs.__name__,
+        ],
+    )
+    HQ.save()
 
 
 async def chat(message: str) -> str | None:
