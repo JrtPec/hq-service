@@ -10,15 +10,25 @@ def get_system_prompt(path) -> str:
 
 class Participant(OpenAISchema):
     name: str
-    role: Literal["player", "bot"]
+    type: Literal["player", "bot"]
+    bio: str | None = None
+    inventory: list[str] | None = None
     notes: str | None = None
+
+    @classmethod
+    def _save_dir(cls) -> Path:
+        return Path("data") / "participants"
+    
+    @property
+    def _save_path(self) -> Path:
+        return self._save_dir() / f"{self.name}.json"
 
     class Config:
         extra = "allow"
 
     def save(self):
         """Sla de configuratie op."""
-        participant_path = Path("data") / "participants" / f"{self.name}.json"
+        participant_path = self._save_path
         participant_path.parent.mkdir(parents=True, exist_ok=True)
         with open(participant_path, "w", encoding="utf-8") as f:
             f.write(self.model_dump_json(indent=2, ensure_ascii=False))
@@ -29,11 +39,33 @@ class Participant(OpenAISchema):
         schema.pop("title", None)
         schema.pop("$defs", None)
         return schema
+    
+    @classmethod
+    def load(cls, name: str) -> "Participant":
+        """Laad een deelnemer vanuit een bestand."""
+        participant_path = cls._save_dir() / f"{name}.json"
+        with open(participant_path, "r", encoding="utf-8") as f:
+            return cls.model_validate_json(f.read())
+        
+    @classmethod
+    def load_all(cls) -> list["Participant"]:
+        """Laad alle deelnemers vanuit bestanden."""
+        participants = []
+        if not cls._save_dir().exists():
+            return participants
+        for participant_file in cls._save_dir().glob("*.json"):
+            with open(participant_file, "r", encoding="utf-8") as f:
+                participants.append(cls.model_validate_json(f.read()))
+        return participants
 
 class Bot(Participant):
     system_prompt: str
     conversation_id: str | None = None
-    role: Literal["bot"] = "bot"
+    type: Literal["bot"] = "bot"
+
+    @classmethod
+    def _save_dir(cls) -> Path:
+        return Path("data") / "bots"
 
     async def ensure_conversation(self, client: instructor.AsyncInstructor):
         if not self.conversation_id:
