@@ -1,17 +1,10 @@
-"""Modellen voor het spel: Speler en Bot."""
+"""Modellen voor deelnemers aan het spel (spelers en bots)."""
 
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Literal
 
-import instructor
 from instructor import OpenAISchema
-
-
-def get_system_prompt(path) -> str:
-    """Lees het systeemprompt uit een bestand."""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
 
 
 class Participant(OpenAISchema, ABC):
@@ -63,34 +56,3 @@ class Participant(OpenAISchema, ABC):
             with open(participant_file, "r", encoding="utf-8") as f:
                 participants.append(cls.model_validate_json(f.read()))
         return participants
-
-
-class Player(Participant):
-    """Class voor een menselijke speler."""
-
-    type: Literal["player"] = "player"
-
-    @classmethod
-    def _save_dir(cls) -> Path:
-        return Path("data") / "players"
-
-
-class Bot(Participant):
-    """Class voor een AI-gestuurde bot."""
-
-    system_prompt: str
-    conversation_id: str | None = None
-    type: Literal["bot"] = "bot"
-
-    @classmethod
-    def _save_dir(cls) -> Path:
-        return Path("data") / "bots"
-
-    async def ensure_conversation(self, client: instructor.AsyncInstructor):
-        """Zorg ervoor dat er een gesprek bestaat voor de bot."""
-        if not self.conversation_id:
-            conv = await client.conversations.create(
-                items=[{"role": "system", "content": self.system_prompt}],
-            )
-            self.conversation_id = conv.id
-            self.save()
