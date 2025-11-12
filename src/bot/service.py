@@ -5,6 +5,7 @@ import discord
 from discord import Intents
 
 from ..game.main import chat as hq_chat
+from ..game.logger import log as game_log
 
 log = logging.getLogger("hq-bot")
 logging.basicConfig(level=logging.INFO)
@@ -34,8 +35,7 @@ async def start_bot():
 
     @client.event
     async def on_message(message: discord.Message):
-        if message.author.bot:
-            return
+
         if message.channel.id != DISCORD_CHANNEL_ID:
             return
 
@@ -45,12 +45,19 @@ async def start_bot():
         payload = f"{sender}: {content}"
 
         try:
-            async with message.channel.typing():
-                reply = await hq_chat(payload)
-            for chunk in _split(reply):
-                await message.channel.send(chunk)
+            await game_log(payload)
         except Exception as e:
-            await message.channel.send(f"❌ HQ API error: {e}")
+            log.error("Fout bij het loggen van bericht: %s", e)
+
+        if not message.author.bot:
+            try:
+                async with message.channel.typing():
+                    reply = await hq_chat(payload)
+                if reply:
+                    for chunk in _split(reply):
+                        await message.channel.send(chunk)
+            except Exception as e:
+                await message.channel.send(f"❌ HQ API error: {e}")
 
     # Start Discord-client (asynchroon; sluit niet je FastAPI af)
     await client.start(DISCORD_TOKEN)

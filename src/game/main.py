@@ -1,86 +1,68 @@
 import json
+import typing
 from openai import AsyncOpenAI
 import os
-
-from .db import get_conversation, log_event
+from .models import Bot, get_system_prompt, Participant
+import instructor
 
 # ---------- Config ----------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+client = instructor.from_openai(client=AsyncOpenAI(api_key=OPENAI_API_KEY))
+
+HQ = Bot(
+    name="HQ",
+    system_prompt=get_system_prompt("src/game/prompts/HQ.txt"),
+)
+HQ.save()
 
 TOOLS = [
     {
         "type": "function",
-        "name": "handle_event",
-        "description": "Sla een gebeurtenis op in het logboek",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "mission_code": {"type": "string"},
-                "event_code": {"type": "string"},
-                "notes": {"type": "string"},
-                "state": {
-                    "type": "object",
-                },
-            },
-            "required": ["mission_code", "event_code", "notes"],
-            "additionalProperties": False,
-        },
-        "strict": False
+        "name": "create_participant",
+        "description": "Maak een nieuwe deelnemer aan in het systeem",
+        "parameters": Participant.tool_schema(),
     }
 ]
 
-def get_system_prompt(path) -> str:
-    """Lees het systeemprompt uit een bestand."""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
-
-async def chat(message: str) -> str:
+async def chat(message: str) -> str | None:
     """Stuur een bericht naar het GPT-model en retourneer het antwoord."""
-    system_prompt = get_system_prompt("src/game/prompts/HQ.txt")
-    conversation = await get_conversation(client, "HQ", system_prompt=system_prompt)
+    await HQ.ensure_conversation(client)
     input_list = [{"role": "user", "content": message}]
     response = await client.responses.create(
         model=OPENAI_MODEL,
-        conversation=conversation,
-        input=input_list,
-        tools=TOOLS,
+        conversation=HQ.conversation_id,
+        input=input_list,  # type: ignore
+        tools=TOOLS,  # type: ignore
     )
 
     if response.output_text != "":
         return response.output_text
-
-    input_list = []
+    
     for item in response.output:
         if item.type == "function_call":
-            if item.name == "handle_event":
-                # 3. Execute the function logic
-                result = handle_event(**json.loads(item.arguments))
-                
-                # 4. Provide function call results to the model
+            if item.name == "create_participant":
+                participant = await create_participant(item.arguments)
                 input_list.append({
                     "type": "function_call_output",
                     "call_id": item.call_id,
-                    "output": json.dumps({
-                        "result": result
-                    })
+                    "output": participant.model_dump_json(ensure_ascii=False),
                 })
 
     response = await client.responses.create(
         model=OPENAI_MODEL,
-        conversation=conversation,
-        input=input_list,
+        conversation=HQ.conversation_id,
+        input=input_list,  # type: ignore
     )
+    if response.output_text != "":
+        return response.output_text
 
-    return response.output_text
+    return None
 
-def handle_event(mission_code, event_code, notes, state=None) -> dict:
-    result = log_event(
-        mission_code=mission_code,
-        event_code=event_code,
-        notes=notes,
-        state=state,
-    )
-    return result
+async def create_participant(args) -> Participant:
+    """Maak een nieuwe deelnemer aan."""
+    participant = Participant.model_validate_json(args)
+    participant = typing.cast(Participant, participant)
+    participant.save()
+    return participant
