@@ -46,7 +46,26 @@ async def get_logs(top_n: int = 10) -> str:
     return "[" + ",".join(line.strip() for line in last_lines) + "]"
 
 
-_tool_functions = [create_player, get_player, get_all_players, get_logs]
+async def chat_with_dm(
+    message: str,
+) -> str | None:
+    """Stuur een bericht naar een bot en ontvang een antwoord."""
+    from .models.bot import Commando, get_system_prompt
+
+    try:
+        dm = Commando.load(callsign="COMMANDO")
+    except FileNotFoundError:
+        dm = Commando(
+            callsign="COMMANDO",
+            system_prompt=get_system_prompt("src/game/prompts/DM.txt"),
+            tool_names=[get_player.__name__, get_all_players.__name__],
+        )
+
+    response = await dm.chat(message)
+    return response
+
+
+_tool_functions = [create_player, get_player, get_all_players, get_logs, chat_with_dm]
 TOOL_MAP: dict[str, typing.Callable[..., typing.Awaitable[str]]] = {
     func.__name__: func for func in _tool_functions
 }
@@ -120,6 +139,25 @@ TOOL_SCHEMAS: dict[str, dict] = {
                     },
                 },
             },
+        },
+    },
+    chat_with_dm.__name__: {
+        "type": "function",
+        "name": chat_with_dm.__name__,
+        "description": "Stuur een bericht naar het Commando (de spelleiding) en ontvang een antwoord. Stuur een bericht als de spelers een spelactie uitvoeren of als ze iets doen wat het Commando moet weten.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "Het bericht dat naar het Commando (de spelleiding) wordt gestuurd.",
+                },
+            },
+            "required": ["message"],
+        },
+        "return_schema": {
+            "type": ["string", "null"],
+            "description": "Het antwoord van het Commando (de spelleiding), of null als er geen antwoord is. Geef deze informatie terug aan de spelers zonder wijzigingen.",
         },
     },
 }

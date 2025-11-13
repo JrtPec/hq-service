@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from src.api.main import app as api_app
 
 # importeer bot-starter
-from src.bot.service import start_bot
+from src.discord.runner import start_bot
 
 # Exporteer één gecombineerde app voor uvicorn
 app = FastAPI(title="HQ Service (API + Bot)")

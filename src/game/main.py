@@ -1,35 +1,29 @@
 """Hoofdlogica voor het spel."""
 
-import os
-
-import instructor
-from openai import AsyncOpenAI
-
 from .models.bot import Bot, get_system_prompt
-from .tools import create_player, get_all_players, get_logs, get_player
+from .tools import chat_with_dm, create_player, get_all_players, get_logs, get_player
 
-# ---------- Config ----------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-client = instructor.from_openai(client=AsyncOpenAI(api_key=OPENAI_API_KEY))
-
+hq_tool_names = [
+    create_player.__name__,
+    get_player.__name__,
+    get_all_players.__name__,
+    get_logs.__name__,
+    chat_with_dm.__name__,
+]
 try:
     HQ = Bot.load(callsign="HQ")
 except FileNotFoundError:
     HQ = Bot(
         callsign="HQ",
         system_prompt=get_system_prompt("src/game/prompts/HQ.txt"),
-        tool_names=[
-            create_player.__name__,
-            get_player.__name__,
-            get_all_players.__name__,
-            get_logs.__name__,
-        ],
+        tool_names=hq_tool_names,
     )
-    HQ.save()
+else:
+    # Zorg ervoor dat de tools up-to-date zijn
+    HQ.tool_names = hq_tool_names
 
 
 async def chat(message: str) -> str | None:
     """Stuur een bericht naar het GPT-model en retourneer het antwoord."""
-    response = await HQ.chat(client, message)
+    response = await HQ.chat(message)
     return response
