@@ -11,10 +11,11 @@ def append_jsonl(path: Path, obj: dict):
         f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
-def log_message(sender: str, content: str):
+def log_message(channel: str, sender: str, content: str):
     """Log een bericht van een speler naar het game log bestand."""
     log_entry = {
         "ts": dt.datetime.utcnow().isoformat() + "Z",
+        "channel": channel,
         "sender": sender,
         "content": content,
     }

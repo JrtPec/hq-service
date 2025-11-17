@@ -11,10 +11,11 @@ hq_tool_names = [
     chat_with_dm.__name__,
 ]
 try:
-    HQ = Bot.load(callsign="HQ")
+    HQ = Bot.load(name="HQ", mission="default")
 except FileNotFoundError:
     HQ = Bot(
-        callsign="HQ",
+        name="HQ",
+        mission="default",
         system_prompt=get_system_prompt("src/game/prompts/HQ.txt"),
         tool_names=hq_tool_names,
     )

@@ -15,18 +15,18 @@ async def create_player(**kwargs) -> str:
     return player.model_dump_json(ensure_ascii=False)
 
 
-async def get_player(callsign: str) -> str:
+async def get_player(name: str, mission: str) -> str:
     """Haal een speler op op basis van callsign."""
     try:
-        player = Player.load(callsign)
+        player = Player.load(name=name, mission=mission)
         return player.model_dump_json(ensure_ascii=False)
     except FileNotFoundError:
         return "Speler niet gevonden."
 
 
-async def get_all_players() -> str:
+async def get_all_players(mission: str) -> str:
     """Haal alle spelers op."""
-    players = Player.load_all()
+    players = Player.load_all(mission=mission)
     if not players:
         return "Er zijn geen spelers gevonden."
     players = [player.model_dump_json(ensure_ascii=False) for player in players]
@@ -46,17 +46,16 @@ async def get_logs(top_n: int = 10) -> str:
     return "[" + ",".join(line.strip() for line in last_lines) + "]"
 
 
-async def chat_with_dm(
-    message: str,
-) -> str | None:
+async def chat_with_dm(message: str, mission: str) -> str | None:
     """Stuur een bericht naar een bot en ontvang een antwoord."""
     from .models.bot import Commando, get_system_prompt
 
     try:
-        dm = Commando.load(callsign="COMMANDO")
+        dm = Commando.load(name="COMMANDO", mission=mission)
     except FileNotFoundError:
         dm = Commando(
-            callsign="COMMANDO",
+            name="COMMANDO",
+            mission=mission,
             system_prompt=get_system_prompt("src/game/prompts/DM.txt"),
             tool_names=[get_player.__name__, get_all_players.__name__],
         )

@@ -26,6 +26,13 @@ def get_client() -> discord.Client | None:
     return client
 
 
+def get_guild() -> discord.Guild | None:
+    """Return the guild (server) instance, or None if not found."""
+    if client is None:
+        return None
+    return client.get_guild(int(os.getenv("DISCORD_GUILD_ID", "0")))
+
+
 async def send_message_to_channel(message: str, channel):
     """Stuur een bericht naar een Discord-kanaal, splits indien nodig."""
     try:

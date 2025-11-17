@@ -1,18 +1,15 @@
 """Discord bot runner for HQ."""
 
 import logging
+import typing
 
 import discord
 from discord import Intents
 
+from ..game.admin import handle_command
 from ..game.logger import log_message
-from ..game.main import chat as hq_chat
-from .service import (
-    DISCORD_CHANNEL_ID,
-    DISCORD_TOKEN,
-    send_message_to_channel,
-    set_client,
-)
+from ..game.models.mission import Mission
+from .service import DISCORD_TOKEN, send_message_to_channel, set_client
 
 log = logging.getLogger("hq-bot")
 logging.basicConfig(level=logging.INFO)
@@ -20,10 +17,8 @@ logging.basicConfig(level=logging.INFO)
 
 async def start_bot():
     """Start de Discord-bot."""
-    if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
-        log.warning(
-            "Bot niet gestart: ontbrekende ENV (DISCORD_TOKEN, DISCORD_CHANNEL_ID)"
-        )
+    if not DISCORD_TOKEN:
+        log.warning("Bot niet gestart: ontbrekende ENV (DISCORD_TOKEN)")
         return
 
     intents = Intents.default()
@@ -39,25 +34,42 @@ async def start_bot():
 
     @client.event
     async def on_message(message: discord.Message):
-        if message.channel.id != DISCORD_CHANNEL_ID:
-            return
-
         content = message.content.strip()
         sender = message.author.display_name
+
+        channel = message.channel
+
+        if hasattr(message.channel, "name"):
+            channel_name = typing.cast(str, message.channel.name)  # type: ignore
+        else:
+            channel_name = "unknown"
         try:
             # log.info("Bericht ontvangen van %s: %s", sender, content)
-            log_message(sender=sender, content=content)
+            log_message(channel=channel_name, sender=sender, content=content)
         except Exception as e:
             log.error("Fout bij het loggen van bericht: %s", e)
 
-        if not message.author.bot:
+        response: str | None = None
+
+        if channel_name == "admin" and content.startswith("!"):
+            command = content.split()[0]
+            message_content = content.split(" ", 1)[1] if " " in content else ""
+            response = await handle_command(command, message_content)
+
+        elif hasattr(channel.category, "name") and not message.author.bot:  # type: ignore
+            category_name = typing.cast(str, channel.category.name)  # type: ignore
+            mission = Mission.load(mission=category_name, name=category_name)
+            bot = mission.get_current_stage_bot()
             payload = f"{sender}: {content}"
             try:
                 async with message.channel.typing():
-                    reply = await hq_chat(payload)
-                if reply:
-                    await send_message_to_channel(reply, message.channel)
+                    response = await bot.chat(payload)
             except Exception as e:
-                await message.channel.send(f"❌ HQ API error: {e}")
+                log.error("Fout bij chat met bot %s: %s", bot.name, e)
+                response = f"❌ Fout bij chat met bot {bot.name}: {e}"
+
+        if response:
+            await send_message_to_channel(response, message.channel)
+            return
 
     await client.start(DISCORD_TOKEN)
