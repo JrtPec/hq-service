@@ -46,7 +46,7 @@ class Bot(Participant):
             )
             log.info("Conversation created with ID %s for bot %s", conv.id, self.name)
             self.conversation_id = conv.id
-            self.save()
+            # self.save()
 
     async def chat(
         self,

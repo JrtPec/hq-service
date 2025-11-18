@@ -18,7 +18,7 @@ async def create_player(**kwargs) -> str:
 async def get_player(name: str, mission: str) -> str:
     """Haal een speler op op basis van callsign."""
     try:
-        player = Player.load(name=name, mission=mission)
+        player = Player.load(name=name, mission_ref=mission)
         return player.model_dump_json(ensure_ascii=False)
     except FileNotFoundError:
         return "Speler niet gevonden."
@@ -26,7 +26,7 @@ async def get_player(name: str, mission: str) -> str:
 
 async def get_all_players(mission: str) -> str:
     """Haal alle spelers op."""
-    players = Player.load_all(mission=mission)
+    players = Player.load_all(mission_ref=mission)
     if not players:
         return "Er zijn geen spelers gevonden."
     players = [player.model_dump_json(ensure_ascii=False) for player in players]
@@ -51,11 +51,11 @@ async def chat_with_dm(message: str, mission: str) -> str | None:
     from .models.bot import Commando, get_system_prompt
 
     try:
-        dm = Commando.load(name="COMMANDO", mission=mission)
+        dm = Commando.load(name="COMMANDO", mission_ref=mission)
     except FileNotFoundError:
         dm = Commando(
             name="COMMANDO",
-            mission=mission,
+            mission_ref=mission,
             system_prompt=get_system_prompt("src/game/prompts/DM.txt"),
             tool_names=[get_player.__name__, get_all_players.__name__],
         )
@@ -97,7 +97,12 @@ TOOL_SCHEMAS: dict[str, dict] = {
         "description": "Haal alle spelers op.",
         "parameters": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "mission": {
+                    "type": "string",
+                    "description": "Naam van de missie.",
+                },
+            },
         },
         "return_schema": {
             "type": "array",

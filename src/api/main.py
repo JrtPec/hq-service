@@ -12,7 +12,6 @@ from fastapi.security import (
     HTTPBearer,
 )
 
-from ..game.main import chat as game_chat
 from .models import ChatRequest, ChatResponse
 
 # ---------- Config ----------
@@ -70,5 +69,5 @@ async def health():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest, api_key: str = Security(get_api_key)):
     """Send a message to the GPT model and return the response."""
-    reply = await game_chat(req.message)
+    reply = req.message
     return ChatResponse(reply=reply)

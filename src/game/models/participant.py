@@ -1,14 +1,14 @@
 """Modellen voor deelnemers aan het spel (spelers en bots)."""
 
-from abc import ABC
 from typing import Literal
 
-from .abstract import AbstractModel
+from pydantic import BaseModel
 
 
-class Participant(AbstractModel, ABC):
+class Participant(BaseModel):
     """Abstracte basisclass voor een deelnemer (speler of bot)."""
 
+    name: str
     type: Literal["player", "bot"]
     inventory: list[str] | None = None
     notes: str | None = None

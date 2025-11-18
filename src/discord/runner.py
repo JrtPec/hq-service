@@ -6,7 +6,7 @@ import typing
 import discord
 from discord import Intents
 
-from ..game.admin import handle_command
+from ..game.admin import handle_command, new_mission
 from ..game.logger import log_message
 from ..game.models.mission import Mission
 from .service import DISCORD_TOKEN, send_message_to_channel, set_client
@@ -25,6 +25,7 @@ async def start_bot():
     intents.message_content = True
     client = discord.Client(intents=intents)
     set_client(client)
+    missions: dict[str, Mission] = {}
 
     @client.event
     async def on_ready():
@@ -54,19 +55,26 @@ async def start_bot():
         if channel_name == "admin" and content.startswith("!"):
             command = content.split()[0]
             message_content = content.split(" ", 1)[1] if " " in content else ""
-            response = await handle_command(command, message_content)
+            if command == "!new":
+                mission = await new_mission(message_content)
+                missions[mission.name.lower()] = mission
+                response = f"✅ Nieuwe missie '{mission.name}' aangemaakt."
+            else:
+                response = await handle_command(command, message_content)
 
         elif hasattr(channel.category, "name") and not message.author.bot:  # type: ignore
             category_name = typing.cast(str, channel.category.name)  # type: ignore
-            mission = Mission.load(mission=category_name, name=category_name)
-            bot = mission.get_current_stage_bot()
+            mission = missions.get(category_name)
+            if mission is None:
+                mission = Mission.load(mission_ref=category_name)
+                missions[category_name] = mission
             payload = f"{sender}: {content}"
             try:
                 async with message.channel.typing():
-                    response = await bot.chat(payload)
+                    response = await mission.chat_with_current_stage_bot(payload)
             except Exception as e:
-                log.error("Fout bij chat met bot %s: %s", bot.name, e)
-                response = f"❌ Fout bij chat met bot {bot.name}: {e}"
+                log.error("Fout bij chat met bot %s: %s", mission.name, e)
+                response = f"❌ Fout bij chat met bot {mission.name}: {e}"
 
         if response:
             await send_message_to_channel(response, message.channel)
