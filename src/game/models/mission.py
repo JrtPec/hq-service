@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO)
 
 class MissionStage(enum.Enum):
     INTAKE = "intake"
+    BEACON = "beacon"
     ACTIVE = "active"
     COMPLETED = "completed"
 
@@ -101,7 +102,6 @@ class Mission(BaseModel):
 
     async def init_stage(self, stage: MissionStage) -> None:
         """Initialize the mission to the given stage."""
-        self.stage = stage
         channel = await self.get_channel(channel_name=stage.value)
         if self._channels is None:
             self._channels = {}
@@ -109,6 +109,7 @@ class Mission(BaseModel):
         bot = self.load_stage_bot(stage=stage)
         await bot.ensure_conversation()
         self.bots[stage] = bot
+        self.stage = stage
         await channel.send(f"Missie {self.name} is nu in de fase: {stage}.")
         self.save()
 
@@ -133,6 +134,8 @@ class Mission(BaseModel):
             if self.hq_location is None:
                 return False, "De HQ-locatie is nog niet ingesteld."
             return True, "Intake fase is voltooid."
+        elif stage == MissionStage.BEACON:
+            return True, "Beacon fase is voltooid."
         elif stage == MissionStage.ACTIVE:
             # Add checks for ACTIVE stage completion if needed
             return True, "Active fase is voltooid."
@@ -146,6 +149,9 @@ class Mission(BaseModel):
         """Initialize the next mission stage."""
         if self.stage == MissionStage.INTAKE:
             await self.close_stage(MissionStage.INTAKE)
+            await self.init_stage(MissionStage.BEACON)
+        elif self.stage == MissionStage.BEACON:
+            await self.close_stage(MissionStage.BEACON)
             await self.init_stage(MissionStage.ACTIVE)
         elif self.stage == MissionStage.ACTIVE:
             await self.close_stage(MissionStage.ACTIVE)
@@ -157,12 +163,14 @@ class Mission(BaseModel):
         """Chat with the bot for the current mission stage."""
         bot = self.get_current_stage_bot()
         response = await self.chat_with_bot(bot, message)
+        self.save()
         return response
 
     async def chat_with_bot(self, bot: Bot, message: str) -> str | None:
         """Chat with a specific bot."""
         input_list = [{"role": "user", "content": message}]
         log.info("Sending message to bot %s: %s", self.name, message)
+        await bot.ensure_conversation()
         response = await openai_client.responses.create(
             model=bot.openai_model,
             conversation=bot.conversation_id,
@@ -195,6 +203,8 @@ class Mission(BaseModel):
                     func = self.next_stage
                 elif item.name == "set_hq_location":
                     func = self.set_hq_location
+                elif item.name == "calculate_distance_to_drop_zone":
+                    func = self.calculate_distance_to_drop_zone
                 else:
                     func = None
                 if func:
@@ -233,7 +243,7 @@ class Mission(BaseModel):
 
     def load_stage_bot(self, stage: MissionStage) -> Bot:
         """Load the bot for a specific mission stage."""
-        if self.stage == MissionStage.INTAKE:
+        if stage == MissionStage.INTAKE:
             bot = Bot(
                 name=MissionStage.INTAKE.value,
                 system_prompt=get_system_prompt("src/game/prompts/intake.txt"),
@@ -244,11 +254,20 @@ class Mission(BaseModel):
                     "set_hq_location",
                 ],
             )
-            return bot
-        bot = Bot(
-            name=stage.value,
-            system_prompt=f"This is the bot for the {stage} stage of mission {self.name}.",
-        )
+        elif stage == MissionStage.BEACON:
+            bot = Bot(
+                name=MissionStage.BEACON.value,
+                system_prompt=get_system_prompt("src/game/prompts/Beacon.txt"),
+                tool_names=[
+                    "calculate_distance_to_drop_zone",
+                    "next_stage",
+                ],
+            )
+        else:
+            bot = Bot(
+                name=stage.value,
+                system_prompt=f"This is the bot for the {stage} stage of mission {self.name}.",
+            )
         return bot
 
     async def create_or_update_player(self, **kwargs) -> str:
@@ -289,7 +308,9 @@ class Mission(BaseModel):
         longitude_dms: dict | None = None,
     ) -> str:
         """Set the HQ location for the mission."""
-        if latitude_decimal is not None and longitude_decimal is not None:
+        if (latitude_decimal is not None and latitude_decimal != 0) and (
+            longitude_decimal is not None and longitude_decimal != 0
+        ):
             self.hq_location = Location(
                 latitude=latitude_decimal, longitude=longitude_decimal
             )
@@ -309,6 +330,36 @@ class Mission(BaseModel):
         self.drop_point = self.hq_location.random_location_at_distance(distance_km=10.0)
         self.save()
         return f"HQ-locatie ingesteld op: {self.hq_location.latitude}, {self.hq_location.longitude}."
+
+    async def calculate_distance_to_drop_zone(
+        self,
+        latitude_decimal: float | None = None,
+        longitude_decimal: float | None = None,
+        latitude_dms: dict | None = None,
+        longitude_dms: dict | None = None,
+    ) -> str:
+        """Calculate the distance to the drop zone from given coordinates."""
+        if (latitude_decimal is not None and latitude_decimal != 0) and (
+            longitude_decimal is not None and longitude_decimal != 0
+        ):
+            location = Location(latitude=latitude_decimal, longitude=longitude_decimal)
+        elif latitude_dms is not None and longitude_dms is not None:
+            location = Location.from_coordinates(
+                lat_deg=latitude_dms["degrees"],
+                lat_min=latitude_dms["minutes"],
+                lat_sec=latitude_dms["seconds"],
+                lat_dir=latitude_dms["direction"],
+                lon_deg=longitude_dms["degrees"],
+                lon_min=longitude_dms["minutes"],
+                lon_sec=longitude_dms["seconds"],
+                lon_dir=longitude_dms["direction"],
+            )
+        else:
+            return "Ongeldige locatiegegevens verstrekt."
+        if self.drop_point is None:
+            return "De drop zone is nog niet ingesteld."
+        distance_m = location.distance_to(self.drop_point)
+        return f"De afstand tot de drop zone is {int(distance_m)} meter."
 
 
 TOOLS = [
@@ -342,6 +393,55 @@ TOOLS = [
         "type": "function",
         "name": "set_hq_location",
         "description": "Stel de HQ-locatie in voor de missie, gegeven in decimale graden of in DMS-formaat.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "latitude_decimal": {
+                    "type": "number",
+                    "description": "Latitude in decimal degrees.",
+                },
+                "longitude_decimal": {
+                    "type": "number",
+                    "description": "Longitude in decimal degrees.",
+                },
+                "latitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["N", "S"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Latitude in DMS format.",
+                },
+                "longitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["E", "W"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Longitude in DMS format.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "calculate_distance_to_drop_zone",
+        "description": "Bereken de afstand tot de drop zone vanaf de gegeven coördinaten, in decimale graden of in DMS-formaat.",
         "parameters": {
             "type": "object",
             "properties": {
