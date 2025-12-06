@@ -10,7 +10,6 @@ class Participant(BaseModel):
 
     name: str
     type: Literal["player", "bot"]
-    inventory: list[str] | None = None
     notes: str | None = None
 
     @classmethod

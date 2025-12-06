@@ -11,6 +11,7 @@ import discord
 from ...discord.service import get_guild
 from ...openai.client import client as openai_client
 from .bot import Bot, get_system_prompt
+from .location import Location
 from .player import Player
 
 log = logging.getLogger("mission")
@@ -35,6 +36,8 @@ class Mission(BaseModel):
 
     bots: dict[MissionStage, Bot] = {}
     players: list[Player] = []
+    hq_location: Location | None = None
+    drop_point: Location | None = None
 
     @classmethod
     def _save_dir(cls, mission_ref) -> Path:
@@ -122,6 +125,23 @@ class Mission(BaseModel):
             await channel.edit(overwrites=overwrites)
         self.save()
 
+    def is_stage_completed(self, stage: MissionStage) -> tuple[bool, str]:
+        """Check if a mission stage is completed."""
+        if stage == MissionStage.INTAKE:
+            if not self.players:
+                return False, "Er zijn nog geen spelers geregistreerd."
+            if self.hq_location is None:
+                return False, "De HQ-locatie is nog niet ingesteld."
+            return True, "Intake fase is voltooid."
+        elif stage == MissionStage.ACTIVE:
+            # Add checks for ACTIVE stage completion if needed
+            return True, "Active fase is voltooid."
+        elif stage == MissionStage.COMPLETED:
+            # Add checks for COMPLETED stage completion if needed
+            return True, "Completed fase is voltooid."
+        else:
+            return False, "Onbekende missie fase."
+
     async def init_next_stage(self) -> None:
         """Initialize the next mission stage."""
         if self.stage == MissionStage.INTAKE:
@@ -147,7 +167,11 @@ class Mission(BaseModel):
             model=bot.openai_model,
             conversation=bot.conversation_id,
             input=input_list,  # type: ignore
-            tools=TOOLS,
+            tools=[
+                tool
+                for tool in TOOLS
+                if bot.tool_names and tool["name"] in bot.tool_names
+            ],
         )
         if response.output_text != "":
             log.info(
@@ -163,12 +187,14 @@ class Mission(BaseModel):
                     item.name,
                     item.arguments,
                 )
-                if item.name == "create_player":
-                    func = self.create_player
+                if item.name == "create_or_update_player":
+                    func = self.create_or_update_player
                 elif item.name == "get_all_players":
                     func = self.get_all_players
                 elif item.name == "next_stage":
                     func = self.next_stage
+                elif item.name == "set_hq_location":
+                    func = self.set_hq_location
                 else:
                     func = None
                 if func:
@@ -206,10 +232,17 @@ class Mission(BaseModel):
         return None
 
     def load_stage_bot(self, stage: MissionStage) -> Bot:
+        """Load the bot for a specific mission stage."""
         if self.stage == MissionStage.INTAKE:
             bot = Bot(
                 name=MissionStage.INTAKE.value,
                 system_prompt=get_system_prompt("src/game/prompts/intake.txt"),
+                tool_names=[
+                    "create_or_update_player",
+                    "get_all_players",
+                    "next_stage",
+                    "set_hq_location",
+                ],
             )
             return bot
         bot = Bot(
@@ -218,10 +251,16 @@ class Mission(BaseModel):
         )
         return bot
 
-    async def create_player(self, **kwargs) -> str:
-        """Create a new player in the mission."""
+    async def create_or_update_player(self, **kwargs) -> str:
+        """Create or update a player in the mission."""
         player = Player(**kwargs)
-        self.players.append(player)
+        # Overwrite existing player with same name, else append
+        for i, existing_player in enumerate(self.players):
+            if existing_player.name == player.name:
+                self.players[i] = player
+                break
+        else:
+            self.players.append(player)
         self.save()
         return player.model_dump_json(ensure_ascii=False)
 
@@ -236,15 +275,47 @@ class Mission(BaseModel):
 
     async def next_stage(self) -> str:
         """Advance the mission to the next stage."""
+        completed, message = self.is_stage_completed(self.stage)
+        if not completed:
+            return f"Kan niet naar de volgende fase gaan: {message}"
         await self.init_next_stage()
         return f"Missie {self.name} is nu in de fase: {self.stage}."
+
+    async def set_hq_location(
+        self,
+        latitude_decimal: float | None = None,
+        longitude_decimal: float | None = None,
+        latitude_dms: dict | None = None,
+        longitude_dms: dict | None = None,
+    ) -> str:
+        """Set the HQ location for the mission."""
+        if latitude_decimal is not None and longitude_decimal is not None:
+            self.hq_location = Location(
+                latitude=latitude_decimal, longitude=longitude_decimal
+            )
+        elif latitude_dms is not None and longitude_dms is not None:
+            self.hq_location = Location.from_coordinates(
+                lat_deg=latitude_dms["degrees"],
+                lat_min=latitude_dms["minutes"],
+                lat_sec=latitude_dms["seconds"],
+                lat_dir=latitude_dms["direction"],
+                lon_deg=longitude_dms["degrees"],
+                lon_min=longitude_dms["minutes"],
+                lon_sec=longitude_dms["seconds"],
+                lon_dir=longitude_dms["direction"],
+            )
+        else:
+            return "Ongeldige locatiegegevens verstrekt."
+        self.drop_point = self.hq_location.random_location_at_distance(distance_km=10.0)
+        self.save()
+        return f"HQ-locatie ingesteld op: {self.hq_location.latitude}, {self.hq_location.longitude}."
 
 
 TOOLS = [
     {
         "type": "function",
-        "name": "create_player",
-        "description": "Maak een nieuwe speler aan in de missie met de gegeven eigenschappen.",
+        "name": "create_or_update_player",
+        "description": "Maak een nieuwe speler aan of werk een bestaande speler bij in de missie met de gegeven eigenschappen.",
         "parameters": Player.tool_schema(),
     },
     {
@@ -264,6 +335,55 @@ TOOLS = [
         "parameters": {
             "type": "object",
             "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "set_hq_location",
+        "description": "Stel de HQ-locatie in voor de missie, gegeven in decimale graden of in DMS-formaat.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "latitude_decimal": {
+                    "type": "number",
+                    "description": "Latitude in decimal degrees.",
+                },
+                "longitude_decimal": {
+                    "type": "number",
+                    "description": "Longitude in decimal degrees.",
+                },
+                "latitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["N", "S"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Latitude in DMS format.",
+                },
+                "longitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["E", "W"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Longitude in DMS format.",
+                },
+            },
             "required": [],
         },
     },
