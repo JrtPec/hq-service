@@ -48,6 +48,23 @@ class Location(BaseModel):
             * 1000
         )
 
+    def bearing_to(self, other: "Location") -> float:
+        """Calculate the bearing in degrees to another Location."""
+        lat1 = math.radians(self.latitude)
+        lat2 = math.radians(other.latitude)
+        diff_long = math.radians(other.longitude - self.longitude)
+
+        x = math.sin(diff_long) * math.cos(lat2)
+        y = math.cos(lat1) * math.sin(lat2) - (
+            math.sin(lat1) * math.cos(lat2) * math.cos(diff_long)
+        )
+
+        initial_bearing = math.atan2(x, y)
+        initial_bearing_deg = math.degrees(initial_bearing)
+        compass_bearing = (initial_bearing_deg + 360) % 360
+
+        return compass_bearing
+
 
 def random_location_at_distance(
     latitude: float, longitude: float, distance_km: float = 10.0

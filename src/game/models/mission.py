@@ -20,8 +20,9 @@ logging.basicConfig(level=logging.INFO)
 
 class MissionStage(enum.Enum):
     INTAKE = "intake"
+    BRIEFING = "briefing"
     BEACON = "beacon"
-    ACTIVE = "active"
+    EXFIL = "exfil"
     COMPLETED = "completed"
 
 
@@ -39,6 +40,10 @@ class Mission(BaseModel):
     players: list[Player] = []
     hq_location: Location | None = None
     drop_point: Location | None = None
+    distance: float = 10.0  # in kilometers
+
+    mission_context: str | None = None
+    mission_objectives: list[str] | None = None
 
     @classmethod
     def _save_dir(cls, mission_ref) -> Path:
@@ -110,7 +115,26 @@ class Mission(BaseModel):
         await bot.ensure_conversation()
         self.bots[stage] = bot
         self.stage = stage
-        await channel.send(f"Missie {self.name} is nu in de fase: {stage}.")
+        if stage == MissionStage.INTAKE:
+            await channel.send(
+                f"Welkom bij missie {self.name}. Stuur een bericht om te beginnen met de intake."
+            )
+        elif stage == MissionStage.BRIEFING:
+            await channel.send(
+                "Kanaal met hoofdcommando geopend. Stuur bericht om de briefing te ontvangen."
+            )
+        elif stage == MissionStage.BEACON:
+            await channel.send(
+                "Beacon active. Knip en plak coördinaten uit je kompas-app om je locatie door te geven en de afstand tot de drop zone te berekenen."
+            )
+        elif stage == MissionStage.EXFIL:
+            await channel.send(
+                "Exfiltratie gestart. De Spelleider zal je begeleiden tijdens de terugtocht naar HQ. Beschrijf je situatie en locatie, en ontvang aanwijzingen en uitdagingen."
+            )
+        else:
+            await channel.send(
+                f"Missie {self.name} is nu in de fase: {stage}. Stuur bericht om te beginnen."
+            )
         self.save()
 
     async def close_stage(self, stage: MissionStage) -> None:
@@ -134,14 +158,16 @@ class Mission(BaseModel):
             if self.hq_location is None:
                 return False, "De HQ-locatie is nog niet ingesteld."
             return True, "Intake fase is voltooid."
+        elif stage == MissionStage.BRIEFING:
+            # Add checks for BRIEFING stage completion if needed
+            if not self.mission_context or not self.mission_objectives:
+                return False, "De missieparameters zijn nog niet ingesteld."
+            return True, "Briefing fase is voltooid."
         elif stage == MissionStage.BEACON:
             return True, "Beacon fase is voltooid."
-        elif stage == MissionStage.ACTIVE:
-            # Add checks for ACTIVE stage completion if needed
-            return True, "Active fase is voltooid."
-        elif stage == MissionStage.COMPLETED:
-            # Add checks for COMPLETED stage completion if needed
-            return True, "Completed fase is voltooid."
+        elif stage == MissionStage.EXFIL:
+            # Add checks for EXFIL stage completion if needed
+            return False, "Exfiltratie fase is voltooid. Einde van de missie."
         else:
             return False, "Onbekende missie fase."
 
@@ -149,12 +175,15 @@ class Mission(BaseModel):
         """Initialize the next mission stage."""
         if self.stage == MissionStage.INTAKE:
             await self.close_stage(MissionStage.INTAKE)
+            await self.init_stage(MissionStage.BRIEFING)
+        elif self.stage == MissionStage.BRIEFING:
+            await self.close_stage(MissionStage.BRIEFING)
             await self.init_stage(MissionStage.BEACON)
         elif self.stage == MissionStage.BEACON:
             await self.close_stage(MissionStage.BEACON)
-            await self.init_stage(MissionStage.ACTIVE)
-        elif self.stage == MissionStage.ACTIVE:
-            await self.close_stage(MissionStage.ACTIVE)
+            await self.init_stage(MissionStage.EXFIL)
+        elif self.stage == MissionStage.EXFIL:
+            await self.close_stage(MissionStage.EXFIL)
             await self.init_stage(MissionStage.COMPLETED)
         else:
             raise RuntimeError("No next stage available.")
@@ -205,6 +234,18 @@ class Mission(BaseModel):
                     func = self.set_hq_location
                 elif item.name == "calculate_distance_to_drop_zone":
                     func = self.calculate_distance_to_drop_zone
+                elif item.name == "calculate_distance_to_hq":
+                    func = self.calculate_distance_to_hq
+                elif item.name == "calculate_bearing_to_hq":
+                    func = self.calculate_bearing_to_hq
+                elif item.name == "save_mission_context":
+                    func = self.save_mission_context
+                elif item.name == "save_mission_objectives":
+                    func = self.save_mission_objectives
+                elif item.name == "get_mission_context":
+                    func = self.get_mission_context
+                elif item.name == "get_mission_objectives":
+                    func = self.get_mission_objectives
                 else:
                     func = None
                 if func:
@@ -253,6 +294,19 @@ class Mission(BaseModel):
                     "next_stage",
                     "set_hq_location",
                 ],
+                openai_model="gpt-4o",
+            )
+        elif stage == MissionStage.BRIEFING:
+            bot = Bot(
+                name=MissionStage.BRIEFING.value,
+                system_prompt=get_system_prompt("src/game/prompts/briefing.txt"),
+                tool_names=[
+                    "save_mission_context",
+                    "save_mission_objectives",
+                    "get_all_players",
+                    "next_stage",
+                ],
+                openai_model="gpt-5",
             )
         elif stage == MissionStage.BEACON:
             bot = Bot(
@@ -262,6 +316,20 @@ class Mission(BaseModel):
                     "calculate_distance_to_drop_zone",
                     "next_stage",
                 ],
+            )
+        elif stage == MissionStage.EXFIL:
+            bot = Bot(
+                name=MissionStage.EXFIL.value,
+                system_prompt=get_system_prompt("src/game/prompts/exfil.txt"),
+                tool_names=[
+                    "calculate_distance_to_hq",
+                    "calculate_bearing_to_hq",
+                    "get_mission_context",
+                    "get_mission_objectives",
+                    "get_all_players",
+                    "next_stage",
+                ],
+                openai_model="gpt-5",
             )
         else:
             bot = Bot(
@@ -298,7 +366,7 @@ class Mission(BaseModel):
         if not completed:
             return f"Kan niet naar de volgende fase gaan: {message}"
         await self.init_next_stage()
-        return f"Missie {self.name} is nu in de fase: {self.stage}."
+        return f"Missie {self.name} gaat naar de volgende fase. Wissel naar het kanaal {self.stage.value}."
 
     async def set_hq_location(
         self,
@@ -327,9 +395,35 @@ class Mission(BaseModel):
             )
         else:
             return "Ongeldige locatiegegevens verstrekt."
-        self.drop_point = self.hq_location.random_location_at_distance(distance_km=10.0)
+        self.drop_point = self.hq_location.random_location_at_distance(
+            distance_km=self.distance
+        )
         self.save()
         return f"HQ-locatie ingesteld op: {self.hq_location.latitude}, {self.hq_location.longitude}."
+
+    async def save_mission_context(self, context: str) -> str:
+        """Save mission context."""
+        self.mission_context = context
+        self.save()
+        return f"Missiecontext opgeslagen: {context}."
+
+    async def get_mission_context(self) -> str:
+        """Get mission context."""
+        if self.mission_context is None:
+            return "Er is geen missiecontext ingesteld."
+        return self.mission_context
+
+    async def save_mission_objectives(self, objectives: list[str]) -> str:
+        """Save mission objectives."""
+        self.mission_objectives = objectives
+        self.save()
+        return f"Missiedoelen opgeslagen: {', '.join(objectives)}."
+
+    async def get_mission_objectives(self) -> str:
+        """Get mission objectives."""
+        if self.mission_objectives is None:
+            return "Er zijn geen missiedoelen ingesteld."
+        return ", ".join(self.mission_objectives)
 
     async def calculate_distance_to_drop_zone(
         self,
@@ -360,6 +454,66 @@ class Mission(BaseModel):
             return "De drop zone is nog niet ingesteld."
         distance_m = location.distance_to(self.drop_point)
         return f"De afstand tot de drop zone is {int(distance_m)} meter."
+
+    async def calculate_distance_to_hq(
+        self,
+        latitude_decimal: float | None = None,
+        longitude_decimal: float | None = None,
+        latitude_dms: dict | None = None,
+        longitude_dms: dict | None = None,
+    ) -> str:
+        """Calculate the distance to HQ from given coordinates."""
+        if (latitude_decimal is not None and latitude_decimal != 0) and (
+            longitude_decimal is not None and longitude_decimal != 0
+        ):
+            location = Location(latitude=latitude_decimal, longitude=longitude_decimal)
+        elif latitude_dms is not None and longitude_dms is not None:
+            location = Location.from_coordinates(
+                lat_deg=latitude_dms["degrees"],
+                lat_min=latitude_dms["minutes"],
+                lat_sec=latitude_dms["seconds"],
+                lat_dir=latitude_dms["direction"],
+                lon_deg=longitude_dms["degrees"],
+                lon_min=longitude_dms["minutes"],
+                lon_sec=longitude_dms["seconds"],
+                lon_dir=longitude_dms["direction"],
+            )
+        else:
+            return "Ongeldige locatiegegevens verstrekt."
+        if self.hq_location is None:
+            return "De HQ-locatie is nog niet ingesteld."
+        distance_m = location.distance_to(self.hq_location)
+        return f"De afstand tot HQ is {int(distance_m)} meter."
+
+    async def calculate_bearing_to_hq(
+        self,
+        latitude_decimal: float | None = None,
+        longitude_decimal: float | None = None,
+        latitude_dms: dict | None = None,
+        longitude_dms: dict | None = None,
+    ) -> str:
+        """Calculate the bearing to HQ from given coordinates."""
+        if (latitude_decimal is not None and latitude_decimal != 0) and (
+            longitude_decimal is not None and longitude_decimal != 0
+        ):
+            location = Location(latitude=latitude_decimal, longitude=longitude_decimal)
+        elif latitude_dms is not None and longitude_dms is not None:
+            location = Location.from_coordinates(
+                lat_deg=latitude_dms["degrees"],
+                lat_min=latitude_dms["minutes"],
+                lat_sec=latitude_dms["seconds"],
+                lat_dir=latitude_dms["direction"],
+                lon_deg=longitude_dms["degrees"],
+                lon_min=longitude_dms["minutes"],
+                lon_sec=longitude_dms["seconds"],
+                lon_dir=longitude_dms["direction"],
+            )
+        else:
+            return "Ongeldige locatiegegevens verstrekt."
+        if self.hq_location is None:
+            return "De HQ-locatie is nog niet ingesteld."
+        bearing_deg = location.bearing_to(self.hq_location)
+        return f"De koers naar HQ is {int(bearing_deg)} graden."
 
 
 TOOLS = [
@@ -484,6 +638,155 @@ TOOLS = [
                     "description": "Longitude in DMS format.",
                 },
             },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "save_mission_context",
+        "description": "Sla de missiecontext op.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "context": {
+                    "type": "string",
+                    "description": "De context van de missie.",
+                },
+            },
+            "required": ["context"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "save_mission_objectives",
+        "description": "Sla de missiedoelen op.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "objectives": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "De doelen van de missie.",
+                },
+            },
+            "required": ["objectives"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "calculate_distance_to_hq",
+        "description": "Bereken de afstand tot HQ vanaf de gegeven coördinaten, in decimale graden of in DMS-formaat.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "latitude_decimal": {
+                    "type": "number",
+                    "description": "Latitude in decimal degrees.",
+                },
+                "longitude_decimal": {
+                    "type": "number",
+                    "description": "Longitude in decimal degrees.",
+                },
+                "latitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["N", "S"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Latitude in DMS format.",
+                },
+                "longitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["E", "W"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Longitude in DMS format.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "calculate_bearing_to_hq",
+        "description": "Bereken de koers naar HQ vanaf de gegeven coördinaten, in decimale graden of in DMS-formaat.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "latitude_decimal": {
+                    "type": "number",
+                    "description": "Latitude in decimal degrees.",
+                },
+                "longitude_decimal": {
+                    "type": "number",
+                    "description": "Longitude in decimal degrees.",
+                },
+                "latitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["N", "S"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Latitude in DMS format.",
+                },
+                "longitude_dms": {
+                    "type": "object",
+                    "properties": {
+                        "degrees": {"type": "integer", "description": "Degrees"},
+                        "minutes": {"type": "integer", "description": "Minutes"},
+                        "seconds": {"type": "integer", "description": "Seconds"},
+                        "direction": {
+                            "type": "string",
+                            "enum": ["E", "W"],
+                            "description": "Direction",
+                        },
+                    },
+                    "required": ["degrees", "minutes", "seconds", "direction"],
+                    "description": "Longitude in DMS format.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_mission_context",
+        "description": "Haal de missiecontext op.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "type": "function",
+        "name": "get_mission_objectives",
+        "description": "Haal de missiedoelen op.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
             "required": [],
         },
     },

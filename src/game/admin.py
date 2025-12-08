@@ -7,9 +7,11 @@ async def handle_command(command: str, message: str) -> str | None:
         raise ValueError("Use the !new command to create a new mission.")
 
 
-async def new_mission(mission_id: str) -> Mission:
+async def new_mission(message_content: str) -> Mission:
     """Create a new mission with the given ID."""
-    mission = Mission(name=mission_id)
+    mission_id, distance_str = message_content.split()
+    distance = float(distance_str)
+    mission = Mission(name=mission_id, distance=distance)
     await mission.init_category()
     await mission.init_stage(MissionStage.INTAKE)
     mission.save()
