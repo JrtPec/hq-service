@@ -2,6 +2,7 @@
 
 import logging
 import typing
+from asyncio import Lock
 
 import discord
 from discord import Intents
@@ -13,6 +14,8 @@ from .service import DISCORD_TOKEN, send_message_to_channel, set_client
 
 log = logging.getLogger("hq-bot")
 logging.basicConfig(level=logging.INFO)
+
+lock = Lock()
 
 
 async def start_bot():
@@ -66,15 +69,24 @@ async def start_bot():
             category_name = typing.cast(str, channel.category.name)  # type: ignore
             mission = missions.get(category_name)
             if mission is None:
-                mission = Mission.load(mission_ref=category_name)
+                try:
+                    mission = Mission.load(mission_ref=category_name)
+                except FileNotFoundError:
+                    log.error("Missie niet gevonden voor categorie %s", category_name)
+                    await send_message_to_channel(
+                        f"❌ Missie niet gevonden voor categorie {category_name}.",
+                        message.channel,
+                    )
+                    return
                 missions[category_name] = mission
             payload = f"{sender}: {content}"
-            try:
-                async with message.channel.typing():
-                    response = await mission.chat_with_current_stage_bot(payload)
-            except Exception as e:
-                log.error("Fout bij chat met bot %s: %s", mission.name, e)
-                response = f"❌ Fout bij chat met bot {mission.name}: {e}"
+            async with lock:
+                try:
+                    async with message.channel.typing():
+                        response = await mission.chat_with_current_stage_bot(payload)
+                except Exception as e:
+                    log.error("Fout bij chat met bot %s: %s", mission.name, e)
+                    response = f"❌ Fout bij chat met bot {mission.name}: {e}"
 
         if response:
             await send_message_to_channel(response, message.channel)

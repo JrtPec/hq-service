@@ -1,6 +1,7 @@
 import enum
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Literal, Self
 
@@ -46,7 +47,7 @@ class Mission(BaseModel):
 
     @classmethod
     def _save_dir(cls, mission_ref) -> Path:
-        return Path("data") / mission_ref
+        return Path(os.getenv("DATA_DIR", "data")) / mission_ref
 
     @classmethod
     def _save_path(cls, name) -> Path:

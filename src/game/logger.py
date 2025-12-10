@@ -2,6 +2,7 @@
 
 import datetime as dt
 import json
+import os
 from pathlib import Path
 
 
@@ -19,6 +20,6 @@ def log_message(channel: str, sender: str, content: str):
         "sender": sender,
         "content": content,
     }
-    log_path = Path("data") / "game_log.jsonl"
+    log_path = Path(os.getenv("DATA_DIR", "data")) / "game_log.jsonl"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     append_jsonl(log_path, log_entry)
