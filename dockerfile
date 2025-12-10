@@ -7,8 +7,6 @@ ENV UV_SYSTEM_PYTHON=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app/src
 
-ENV DB_PATH=/data/conversation.db
-
 # ---- dependencies ----
 COPY pyproject.toml .
 RUN uv sync --no-cache

@@ -8,7 +8,7 @@ import discord
 from pydantic import BaseModel
 
 from ...discord_service.service import get_guild
-from ...openai.client import client as openai_client
+from ...openai_service.client import client as openai_client
 from .bot import Bot, get_system_prompt
 from .location import Location
 from .player import Player
