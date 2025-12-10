@@ -9,6 +9,6 @@ dependencies = [
     "python-dotenv",
     "httpx",
     "openai>=1.40.0",
-    "discord",
-    "instructor"
+    "instructor",
+    "discord==2.3.2",
 ]

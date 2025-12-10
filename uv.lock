@@ -554,7 +554,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "discord" },
+    { name = "discord", specifier = "==2.3.2" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "instructor" },
