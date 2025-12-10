@@ -62,6 +62,20 @@ async def start_bot():
                 mission = await new_mission(message_content)
                 missions[mission.name.lower()] = mission
                 response = f"✅ Nieuwe missie '{mission.name}' aangemaakt."
+            elif command == "!dump":
+                mission = missions.get(message_content.lower())
+                if mission is None:
+                    try:
+                        mission = Mission.load(mission_ref=message_content.lower())
+                    except FileNotFoundError:
+                        log.error("Missie niet gevonden voor dump %s", message_content)
+                        await send_message_to_channel(
+                            f"❌ Missie niet gevonden voor dump {message_content}.",
+                            message.channel,
+                        )
+                        return
+                    missions[message_content.lower()] = mission
+                response = mission.model_dump_json(indent=2)
             else:
                 response = await handle_command(command, message_content)
 

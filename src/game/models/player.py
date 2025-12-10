@@ -9,3 +9,4 @@ class Player(Participant):
     """Class voor een menselijke speler."""
 
     type: Literal["player"] = "player"
+    inventory: list[str] = []

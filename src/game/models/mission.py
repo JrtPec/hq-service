@@ -87,7 +87,9 @@ class Mission(BaseModel):
     async def get_channel(self, channel_name: str) -> discord.TextChannel:
         """Get a Discord text channel by mission ID and channel name."""
         if self._category is None:
-            raise RuntimeError("Category not initialized.")
+            await self.init_category()
+            if self._category is None:
+                raise RuntimeError("Category not initialized.")
         for channel in self._category.text_channels:
             if channel.name == channel_name.lower():
                 return channel
@@ -197,33 +199,44 @@ class Mission(BaseModel):
 
     async def chat_with_bot(self, bot: Bot, message: str) -> str | None:
         """Chat with a specific bot."""
-        input_list = [{"role": "user", "content": message}]
+        pending_inputs = [{"role": "user", "content": message}]
         log.info("Sending message to bot %s: %s", self.name, message)
         await bot.ensure_conversation()
-        response = await openai_client.responses.create(
-            model=bot.openai_model,
-            conversation=bot.conversation_id,
-            input=input_list,  # type: ignore
-            tools=[
-                tool
-                for tool in TOOLS
-                if bot.tool_names and tool["name"] in bot.tool_names
-            ],
-        )
-        if response.output_text != "":
-            log.info(
-                "Received response from bot %s: %s", self.name, response.output_text
-            )
-            return response.output_text
 
-        for item in response.output:
-            if item.type == "function_call":
+        accumulated_text = ""
+        used_tools = False
+        response = None
+
+        for _ in range(5):  # Max 5 iterations for function calls
+            response = await openai_client.responses.create(
+                model=bot.openai_model,
+                conversation=bot.conversation_id,
+                input=pending_inputs,  # type: ignore
+                tools=[
+                    tool
+                    for tool in TOOLS
+                    if bot.tool_names and tool["name"] in bot.tool_names
+                ],
+            )
+            if response.output_text:
+                accumulated_text += response.output_text + "\n"
+
+            tool_calls = [
+                item for item in response.output if item.type == "function_call"
+            ]
+            if not tool_calls:
+                break
+
+            used_tools = True
+            pending_inputs = []
+            for item in tool_calls:
                 log.info(
-                    "Bot %s is calling function %s with arguments %s",
+                    "Bot %s requested function call %s with arguments %s",
                     self.name,
                     item.name,
                     item.arguments,
                 )
+
                 if item.name == "create_or_update_player":
                     func = self.create_or_update_player
                 elif item.name == "get_all_players":
@@ -250,7 +263,7 @@ class Mission(BaseModel):
                     func = None
                 if func:
                     result = await func(**json.loads(item.arguments))
-                    input_list.append(
+                    pending_inputs.append(
                         {
                             "type": "function_call_output",
                             "call_id": item.call_id,
@@ -259,26 +272,43 @@ class Mission(BaseModel):
                     )
                 else:
                     log.warning("Unknown function call: %s", item.name)
-                    return None
-
-        log.info(
-            "Sending follow-up message to bot %s with function call outputs",
-            self.name,
-        )
-        log.info("Follow-up input: %s", input_list)
-        response = await openai_client.responses.create(
-            model=bot.openai_model,
-            conversation=bot.conversation_id,
-            input=input_list,  # type: ignore
-        )
-        if response.output_text != "":
-            log.info(
-                "Received follow-up response from bot %s: %s",
-                self.name,
-                response.output_text,
+                    pending_inputs.append(
+                        {
+                            "type": "function_call_output",
+                            "call_id": item.call_id,
+                            "output": f"Unknown function: {item.name}",
+                        }
+                    )
+        else:
+            log.warning("Max function call iterations reached for bot %s", self.name)
+            return (
+                "❌ Maximaal aantal functie-aanroepen bereikt zonder tekstuele reactie."
             )
-            return response.output_text
 
+        if accumulated_text.strip():
+            final_text = accumulated_text.strip()
+            log.info("Response from bot %s: %s", self.name, final_text)
+            return final_text
+
+        if used_tools:
+            log.info("No text response from bot %s after tool usage", self.name)
+            final_response = await openai_client.responses.create(
+                model=bot.openai_model,
+                conversation=bot.conversation_id,
+                input=[
+                    {
+                        "role": "developer",
+                        "content": "De tools zijn uitgevoerd. Geef nu een tekstueel antwoord op de vorige input zonder verdere tool-aanroepen.",
+                    }
+                ],  # type: ignore
+            )
+            if final_response.output_text:
+                log.info(
+                    "Final response from bot %s: %s",
+                    self.name,
+                    final_response.output_text,
+                )
+                return final_response.output_text
         log.info("No response from bot %s", self.name)
         return None
 
