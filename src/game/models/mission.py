@@ -4,11 +4,10 @@ import logging
 from pathlib import Path
 from typing import Literal, Self
 
+import discord
 from pydantic import BaseModel
 
-import discord
-
-from ...discord.service import get_guild
+from ...discord_service.service import get_guild
 from ...openai.client import client as openai_client
 from .bot import Bot, get_system_prompt
 from .location import Location
