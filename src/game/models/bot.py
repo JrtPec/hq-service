@@ -3,7 +3,7 @@
 import logging
 from typing import Literal
 
-from ...openai.client import client as openai_client
+from ...openai_service.client import client as openai_client
 from .participant import Participant
 
 log = logging.getLogger("bot")
