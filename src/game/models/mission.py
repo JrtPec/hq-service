@@ -131,13 +131,21 @@ class Mission(BaseModel):
             )
         elif stage == MissionStage.EXFIL:
             await channel.send(
-                "Exfiltratie gestart. De Spelleider zal je begeleiden tijdens de terugtocht naar HQ. Beschrijf je situatie en locatie, en ontvang aanwijzingen en uitdagingen."
+                "Exfiltratie gestart. De Gids zal je begeleiden tijdens de terugtocht naar HQ. Beschrijf je situatie en locatie, en ontvang aanwijzingen en uitdagingen."
             )
         else:
             await channel.send(
                 f"Missie {self.name} is nu in de fase: {stage}. Stuur bericht om te beginnen."
             )
         self.save()
+
+    async def reset_stage_conversation(self, stage_name: str) -> None:
+        """Reset the conversation for a given mission stage."""
+        stage = MissionStage(stage_name)
+        bot = self.bots.get(stage)
+        if bot is not None:
+            await bot.reset_conversation()
+            self.save()
 
     async def close_stage(self, stage: MissionStage) -> None:
         """Close the given mission stage."""

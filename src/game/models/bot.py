@@ -36,3 +36,10 @@ class Bot(Participant):
             log.info("Conversation created with ID %s for bot %s", conv.id, self.name)
             self.conversation_id = conv.id
             # self.save()
+
+    async def reset_conversation(self):
+        """Reset het gesprek van de bot."""
+        if self.conversation_id:
+            log.info("Resetting conversation for bot %s", self.name)
+            self.conversation_id = None
+            await self.ensure_conversation()

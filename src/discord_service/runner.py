@@ -76,6 +76,25 @@ async def start_bot():
                         return
                     missions[message_content.lower()] = mission
                 response = mission.model_dump_json(indent=2)
+            elif command == "!resetconv":
+                mission_name, stagename = message_content.split(" ", 1)
+                mission = missions.get(mission_name.lower())
+                if mission is None:
+                    try:
+                        mission = Mission.load(mission_ref=mission_name.lower())
+                    except FileNotFoundError:
+                        log.error(
+                            "Missie niet gevonden voor resetconv %s", message_content
+                        )
+                        await send_message_to_channel(
+                            f"❌ Missie niet gevonden voor resetconv {message_content}.",
+                            message.channel,
+                        )
+                        return
+                    missions[mission.name.lower()] = mission
+                await mission.reset_stage_conversation(stagename)
+                response = f"✅ Gesprek voor stage '{stagename}' van missie '{mission.name}' gereset."
+
             else:
                 response = await handle_command(command, message_content)
 
